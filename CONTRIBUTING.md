@@ -24,6 +24,26 @@ Before you start, please note that the ability to use following technologies is 
 - [Android Studio](https://developer.android.com/studio)
 - Emulator or phone with developer options enabled to test changes.
 
+### Build troubleshooting (Linux/CI)
+
+If Gradle fails very early with a short message like `What went wrong: 25.0.1`, check Java environment variables first. This error can happen when `JAVA_VERSION` is set to a non-JDK value (for example `25.0.1`).
+
+1. Verify SDK path:
+   - `echo $ANDROID_HOME`
+   - `echo $ANDROID_SDK_ROOT`
+2. Verify Java environment:
+   - `echo $JAVA_HOME`
+   - `echo $JAVA_VERSION`
+   - `java -version`
+   - This project expects a stable JDK (17 or 21). If your `java -version` is `25.x`, switch to JDK 21.
+   - If `JAVA_VERSION` is set to something like `25.0.1`, unset it before Gradle:
+     - `unset JAVA_VERSION`
+3. Install/update required SDK components:
+   - `sdkmanager --licenses`
+   - `sdkmanager \"platform-tools\" \"platforms;android-35\" \"build-tools;35.0.0\"`
+4. Re-run with diagnostics:
+   - `./gradlew :app:compileStandardDebugKotlin --stacktrace --info`
+
 ## Getting help
 
 - Join [the Discord server](https://discord.gg/mihon) for online help and to ask questions while developing.

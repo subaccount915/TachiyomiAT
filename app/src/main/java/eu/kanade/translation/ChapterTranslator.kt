@@ -1,6 +1,7 @@
 package eu.kanade.translation
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.hippo.unifile.UniFile
@@ -39,6 +40,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToStream
 import logcat.LogPriority
 import mihon.core.archive.archiveReader
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
@@ -51,6 +53,8 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.InputStream
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 class ChapterTranslator(
     private val context: Context,
@@ -231,8 +235,7 @@ class ChapterTranslator(
                     coroutineContext.ensureActive()
                     streamFn().use { tmpFile.openOutputStream().use { out -> it.copyTo(out) } }
                     val image = InputImage.fromFilePath(context, tmpFile.uri)
-                    val result = textRecognizer.recognize(image)
-                    val blocks = result.textBlocks.filter { it.boundingBox != null && it.text.length > 1 }
+                    val blocks = recognizeBestBlocks(image, tmpFile, fileName)
                     val pageTranslation = convertToPageTranslation(blocks, image.width, image.height)
                     if (pageTranslation.blocks.isNotEmpty()) pages[fileName] = pageTranslation
                 }
@@ -253,9 +256,20 @@ class ChapterTranslator(
 
     private fun convertToPageTranslation(blocks: List<Text.TextBlock>, width: Int, height: Int): PageTranslation {
         val translation = PageTranslation(imgWidth = width.toFloat(), imgHeight = height.toFloat())
-        for (block in blocks) {
+        val sortedBlocks = blocks
+            .asSequence()
+            .filter { block -> !isWatermarkOrLink(block.text) }
+            .sortedWith(
+                compareBy<Text.TextBlock>(
+                    { it.boundingBox?.top ?: Int.MAX_VALUE },
+                    { it.boundingBox?.left ?: Int.MAX_VALUE },
+                ),
+            )
+            .toList()
+
+        for (block in sortedBlocks) {
             val bounds = block.boundingBox!!
-            val symBounds = block.lines.first().elements.first().symbols.first().boundingBox!!
+            val symBounds = firstSymbolBounds(block) ?: continue
             translation.blocks.add(
                 TranslationBlock(
                     text = block.text,
@@ -274,6 +288,42 @@ class ChapterTranslator(
 
         return translation
     }
+
+    private fun recognizeBestBlocks(image: InputImage, tmpFile: UniFile, pageName: String): List<Text.TextBlock> {
+        val baseBlocks = extractUsableBlocks(textRecognizer.recognize(image).textBlocks)
+        if (scoreBlocks(baseBlocks) >= 12) return baseBlocks
+
+        val bitmap = tmpFile.openInputStream().use { BitmapFactory.decodeStream(it) } ?: return baseBlocks
+        return try {
+            val rotated90 = extractUsableBlocks(textRecognizer.recognize(InputImage.fromBitmap(bitmap, 90)).textBlocks)
+            val rotated270 = extractUsableBlocks(textRecognizer.recognize(InputImage.fromBitmap(bitmap, 270)).textBlocks)
+            val candidates = listOf(baseBlocks, rotated90, rotated270)
+            val scores = candidates.map(::scoreBlocks)
+            val bestIndex = scores.indices.maxByOrNull { scores[it] } ?: 0
+            logcat(LogPriority.INFO) {
+                "OCR fallback used for $pageName (scores: base=${scores[0]}, rot90=${scores[1]}, rot270=${scores[2]})"
+            }
+            candidates[bestIndex]
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun extractUsableBlocks(blocks: List<Text.TextBlock>): List<Text.TextBlock> {
+        return blocks.filter { it.boundingBox != null && it.text.length > 1 }
+    }
+
+    private fun scoreBlocks(blocks: List<Text.TextBlock>): Int {
+        return blocks.sumOf { it.text.length }
+    }
+
+    private fun firstSymbolBounds(block: Text.TextBlock) = block.lines
+        .firstOrNull()
+        ?.elements
+        ?.firstOrNull()
+        ?.symbols
+        ?.firstOrNull()
+        ?.boundingBox
 
     private fun smartMergeBlocks(
         blocks: List<TranslationBlock>,
@@ -307,15 +357,15 @@ class ChapterTranslator(
     ): Boolean {
         val isWidthSimilar = (b.width < a.width) || (abs(a.width - b.width) < widthThreshold)
         val isXClose = abs(a.x - b.x) < xThreshold
-        val isYClose = (b.y - (a.y + a.height)) < yThreshold
+        val isYClose = abs(b.y - (a.y + a.height)) < yThreshold
         return isWidthSimilar && isXClose && isYClose
     }
 
     private fun mergeTextBlock(a: TranslationBlock, b: TranslationBlock): TranslationBlock {
-        val newX = kotlin.math.min(a.x, b.x)
-        val newY = a.y
-        val newWidth = kotlin.math.max(a.x + a.width, b.x + b.width) - newX
-        val newHeight = kotlin.math.max(a.y + a.height, b.y + b.height) - newY
+        val newX = min(a.x, b.x)
+        val newY = min(a.y, b.y)
+        val newWidth = max(a.x + a.width, b.x + b.width) - newX
+        val newHeight = max(a.y + a.height, b.y + b.height) - newY
         return TranslationBlock(
             a.text + " " + b.text,
             a.translation + " " + b.translation,
@@ -324,6 +374,14 @@ class ChapterTranslator(
             newX, newY, a.symHeight,
             a.symWidth, a.angle,
         )
+    }
+
+    private fun isWatermarkOrLink(text: String): Boolean {
+        val normalized = text.trim()
+        if (normalized.isBlank()) return true
+        if (normalized.length <= 2) return true
+        if (normalized.contains("www.", ignoreCase = true)) return true
+        return normalized.toHttpUrlOrNull() != null
     }
 
     private fun getChapterPages(chapterPath: UniFile): List<Pair<String, () -> InputStream>> {

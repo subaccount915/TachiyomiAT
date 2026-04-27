@@ -15,7 +15,7 @@ import eu.kanade.translation.model.PageTranslation
 import eu.kanade.translation.recognizer.TextRecognizerLanguage
 import logcat.logcat
 import org.json.JSONObject
-@Suppress
+
 class GeminiTranslator(
     override val fromLang: TextRecognizerLanguage,
     override val toLang: TextTranslatorLanguage,
@@ -87,7 +87,7 @@ class GeminiTranslator(
             val data = pages.mapValues { (k, v) -> v.blocks.map { b -> b.text } }
             val json = JSONObject(data)
             val response = model.generateContent(json.toString())
-            val resJson = JSONObject("${response.text}")
+            val resJson = JSONObject(cleanJsonResponse(response.text))
             for ((k, v) in pages) {
                 v.blocks.forEachIndexed { i, b ->
                     run {
@@ -107,5 +107,12 @@ class GeminiTranslator(
     override fun close() {
     }
 
+    private fun cleanJsonResponse(raw: String?): String {
+        if (raw.isNullOrBlank()) return "{}"
+        return raw
+            .replace("```json", "")
+            .replace("```", "")
+            .trim()
+    }
 
 }

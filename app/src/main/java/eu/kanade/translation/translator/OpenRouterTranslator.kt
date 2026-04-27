@@ -94,8 +94,8 @@ class OpenRouterTranslator(
             val response = okHttpClient.newCall(build).await()
             val rBody = response.body
             val json2 = JSONObject(rBody.string())
-            val resJson =
-                JSONObject(json2.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content"))
+            val rawContent = json2.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
+            val resJson = JSONObject(cleanJsonResponse(rawContent))
 
             for ((k, v) in pages) {
                 v.blocks.forEachIndexed { i, b ->
@@ -118,5 +118,12 @@ class OpenRouterTranslator(
     override fun close() {
     }
 
+    private fun cleanJsonResponse(raw: String?): String {
+        if (raw.isNullOrBlank()) return "{}"
+        return raw
+            .replace("```json", "")
+            .replace("```", "")
+            .trim()
+    }
 
 }
