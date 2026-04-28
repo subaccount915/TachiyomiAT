@@ -44,6 +44,18 @@ If Gradle fails very early with a short message like `What went wrong: 25.0.1`, 
 4. Re-run with diagnostics:
    - `./gradlew :app:compileStandardDebugKotlin --stacktrace --info`
 
+### Cloud-first build workflow
+
+If you want to stay on cloud runners, use the helper script:
+
+- `scripts/cloud-build.sh :app:compileStandardDebugKotlin`
+- `scripts/cloud-build.sh :app:compileStandardDebugKotlin :domain:compileKotlin`
+
+The script does:
+- Prefer JDK 21 from common Linux paths.
+- Unset `JAVA_VERSION` to avoid `25.0.1` parsing failures.
+- Run Gradle with the selected JDK.
+
 ## Getting help
 
 - Join [the Discord server](https://discord.gg/mihon) for online help and to ask questions while developing.
