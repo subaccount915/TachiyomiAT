@@ -53,6 +53,7 @@ If you want to stay on cloud runners, use the helper script:
 
 The script does:
 - Prefer JDK 21 from common Linux paths.
+- Also checks mise-managed JDK paths (`~/.local/share/mise/installs/java/21*`).
 - Unset `JAVA_VERSION` to avoid `25.0.1` parsing failures.
 - Run Gradle with the selected JDK.
 

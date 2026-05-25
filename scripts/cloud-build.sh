@@ -12,6 +12,8 @@ fi
 
 find_jdk21() {
   local candidates=(
+    "${HOME}/.local/share/mise/installs/java/21"
+    "${HOME}/.local/share/mise/installs/java/21.0.2"
     "/usr/lib/jvm/temurin-21-jdk-amd64"
     "/usr/lib/jvm/java-21-openjdk-amd64"
     "/usr/lib/jvm/java-21-openjdk"
